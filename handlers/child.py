@@ -687,6 +687,102 @@ async def hw_deadline(message: Message, state: FSMContext) -> None:
     )
 
 
+class ChildAddTaskFSM(StatesGroup):
+    title = State()
+    category = State()
+    deadline = State()
+
+
+@router.callback_query(F.data == "child_add_task")
+async def handle_child_add_task(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(ChildAddTaskFSM.title)
+    await callback.message.edit_text(
+        "➕ *Добавить задачу*\n\nНапиши название задачи:",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@router.message(ChildAddTaskFSM.title)
+async def child_task_title(message: Message, state: FSMContext) -> None:
+    await state.update_data(task_title=message.text.strip())
+    await state.set_state(ChildAddTaskFSM.category)
+    from keyboards import category_keyboard
+    await message.answer(
+        "📁 *Выбери категорию:*",
+        reply_markup=category_keyboard(),
+        parse_mode="Markdown"
+    )
+
+
+@router.callback_query(ChildAddTaskFSM.category, F.data.startswith("cat_"))
+async def child_task_category(callback: CallbackQuery, state: FSMContext) -> None:
+    cat_map = {
+        "cat_home": "home",
+        "cat_school": "school",
+        "cat_personal": "personal",
+        "cat_weekly": "weekly",
+    }
+    await state.update_data(task_category=cat_map.get(callback.data, "personal"))
+    await state.set_state(ChildAddTaskFSM.deadline)
+    await callback.message.edit_text(
+        "📅 *К какому числу?*\n\nВведи дату (ДД.ММ.ГГГГ) или напиши 'завтра' / 'сегодня':",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@router.message(ChildAddTaskFSM.deadline)
+async def child_task_deadline(message: Message, state: FSMContext) -> None:
+    text = message.text.strip().lower()
+    if text == "сегодня":
+        deadline_date = date.today()
+    elif text == "завтра":
+        deadline_date = date.today() + timedelta(days=1)
+    else:
+        try:
+            deadline_date = datetime.strptime(text, "%d.%m.%Y").date()
+        except ValueError:
+            await message.answer("❌ Неверный формат! Введи дату как ДД.ММ.ГГГГ, 'сегодня' или 'завтра':")
+            return
+
+    data = await state.get_data()
+
+    async with get_session() as session:
+        task = Task(
+            title=data["task_title"],
+            category=data.get("task_category", "personal"),
+            priority="medium",
+            is_critical=False,
+            is_recurring=False,
+            recur_type="once",
+            recur_time="evening",
+            deadline=deadline_date,
+            points=2,
+            penalty_points=0,
+            created_by=message.from_user.id,
+        )
+        session.add(task)
+        await session.flush()
+
+        completion = TaskCompletion(
+            task_id=task.id,
+            date=deadline_date,
+            status=CompletionStatus.pending,
+        )
+        session.add(completion)
+
+    await state.clear()
+    await message.answer(
+        f"✅ *Задача добавлена!*\n\n"
+        f"📌 {data['task_title']}\n"
+        f"📅 Срок: {deadline_date.strftime('%d.%m.%Y')}\n\n"
+        f"Удачи! 💪",
+        reply_markup=back_keyboard(),
+        parse_mode="Markdown"
+    )
+
+
 @router.callback_query(F.data == "child_my_reward")
 async def handle_my_reward(callback: CallbackQuery) -> None:
     user_id = callback.from_user.id

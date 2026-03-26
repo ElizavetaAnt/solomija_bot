@@ -15,6 +15,7 @@ def child_main_menu() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="⏰ Напомнить позже", callback_data="child_remind_later"),
         InlineKeyboardButton(text="📚 Добавить ДЗ", callback_data="child_add_homework"),
     )
+    builder.row(InlineKeyboardButton(text="➕ Добавить задачу", callback_data="child_add_task"))
     builder.row(InlineKeyboardButton(text="🏆 Моя награда", callback_data="child_my_reward"))
     return builder.as_markup()
 
