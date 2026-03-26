@@ -34,7 +34,10 @@ def parent_main_menu() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="❌ Невыполненные", callback_data="parent_failed_tasks"),
         InlineKeyboardButton(text="🗓 Расписание", callback_data="parent_schedule"),
     )
-    builder.row(InlineKeyboardButton(text="🎁 Награда недели", callback_data="parent_reward"))
+    builder.row(
+        InlineKeyboardButton(text="🎁 Награда недели", callback_data="parent_reward"),
+        InlineKeyboardButton(text="🛍 Управление наградами", callback_data="parent_manage_rewards"),
+    )
     return builder.as_markup()
 
 

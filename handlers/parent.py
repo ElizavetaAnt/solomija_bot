@@ -18,7 +18,7 @@ from messages import daily_report_parent, weekly_report_parent
 from models import (
     Task, TaskCompletion, CompletionStatus, Points, PointsHistory,
     RecurType, RecurTime, TaskCategory, TaskPriority,
-    ScheduleBlock, Reward, RewardRequest, RewardRequestStatus,
+    ScheduleBlock, Reward, RewardRequest, RewardRequestStatus, RewardType,
     PostponeRequest, PostponeStatus, User, UserRole
 )
 
@@ -35,6 +35,11 @@ class AddTaskFSM(StatesGroup):
     deadline = State()
     points = State()
     confirm = State()
+
+
+class AddRewardFSM(StatesGroup):
+    title = State()
+    cost = State()
 
 
 class ScheduleFSM(StatesGroup):
@@ -836,6 +841,83 @@ async def handle_reward_none(callback: CallbackQuery) -> None:
         parse_mode="Markdown"
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == "parent_manage_rewards")
+async def handle_manage_rewards(callback: CallbackQuery) -> None:
+    async with get_session() as session:
+        result = await session.execute(
+            select(Reward).where(Reward.is_active == True).order_by(Reward.cost_points)
+        )
+        rewards = result.scalars().all()
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="➕ Добавить награду", callback_data="reward_add"))
+
+    text = "🛍 *Текущие награды:*\n\n"
+    if rewards:
+        for r in rewards:
+            text += f"• *{r.title}* — {r.cost_points} очков\n"
+    else:
+        text += "(нет наград)\n"
+
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu"))
+
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "reward_add")
+async def handle_reward_add_start(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AddRewardFSM.title)
+    await callback.message.edit_text(
+        "🎁 *Новая награда*\n\nНапиши название награды:",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@router.message(AddRewardFSM.title)
+async def add_reward_title(message: Message, state: FSMContext) -> None:
+    await state.update_data(reward_title=message.text.strip())
+    await state.set_state(AddRewardFSM.cost)
+    await message.answer(
+        "💫 *Сколько очков стоит эта награда?*\n\nВведи число:",
+        parse_mode="Markdown"
+    )
+
+
+@router.message(AddRewardFSM.cost)
+async def add_reward_cost(message: Message, state: FSMContext) -> None:
+    try:
+        cost = int(message.text.strip())
+        if cost < 1:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Введи положительное число:")
+        return
+
+    data = await state.get_data()
+
+    async with get_session() as session:
+        reward = Reward(
+            title=data["reward_title"],
+            cost_points=cost,
+            reward_type=RewardType.real,
+            is_active=True,
+        )
+        session.add(reward)
+
+    await state.clear()
+    await message.answer(
+        f"✅ *Награда добавлена!*\n\n"
+        f"🎁 {data['reward_title']}\n"
+        f"💫 {cost} очков",
+        reply_markup=back_keyboard(),
+        parse_mode="Markdown"
+    )
 
 
 async def _get_child_ids() -> list[int]:
