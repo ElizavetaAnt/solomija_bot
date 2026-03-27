@@ -33,6 +33,7 @@ class AddTaskFSM(StatesGroup):
     recur_type = State()
     recur_time_type = State()
     deadline = State()
+    task_time = State()
     points = State()
     confirm = State()
 
@@ -292,8 +293,10 @@ async def add_task_recur_type(callback: CallbackQuery, state: FSMContext) -> Non
         )
     else:
         await state.set_state(AddTaskFSM.deadline)
+        from keyboards import day_picker_keyboard
         await callback.message.edit_text(
-            "📅 *Введи дату* (ДД.ММ.ГГГГ):",
+            "📅 *Выбери день:*",
+            reply_markup=day_picker_keyboard(),
             parse_mode="Markdown"
         )
     await callback.answer()
@@ -311,20 +314,30 @@ async def add_task_recur_time(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer()
 
 
-@router.message(AddTaskFSM.deadline)
-async def add_task_deadline(message: Message, state: FSMContext) -> None:
-    try:
-        deadline = datetime.strptime(message.text.strip(), "%d.%m.%Y").date()
-    except ValueError:
-        await message.answer("❌ Неверный формат! Введи дату как ДД.ММ.ГГГГ:")
-        return
+@router.callback_query(AddTaskFSM.deadline, F.data.startswith("day_"))
+async def add_task_deadline(callback: CallbackQuery, state: FSMContext) -> None:
+    day_str = callback.data.replace("day_", "")
+    await state.update_data(task_deadline=day_str)
+    await state.set_state(AddTaskFSM.task_time)
+    from keyboards import time_picker_keyboard
+    await callback.message.edit_text(
+        "🕐 *Выбери время:*",
+        reply_markup=time_picker_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
-    await state.update_data(task_deadline=deadline.isoformat())
+
+@router.callback_query(AddTaskFSM.task_time, F.data.startswith("time_"))
+async def add_task_time(callback: CallbackQuery, state: FSMContext) -> None:
+    time_str = callback.data.replace("time_", "")
+    await state.update_data(task_time=time_str)
     await state.set_state(AddTaskFSM.points)
-    await message.answer(
+    await callback.message.edit_text(
         "💫 *Сколько очков за выполнение?* (введи число от 1 до 10):",
         parse_mode="Markdown"
     )
+    await callback.answer()
 
 
 @router.message(AddTaskFSM.points)
@@ -357,6 +370,7 @@ async def add_task_points(message: Message, state: FSMContext) -> None:
             recur_type=recur_type_val,
             recur_time=recur_time_val,
             deadline=deadline,
+            specific_time=data.get("task_time"),
             points=pts,
             penalty_points=penalty,
             created_by=message.from_user.id,
@@ -840,6 +854,69 @@ async def handle_reward_none(callback: CallbackQuery) -> None:
         "Награда за эту неделю не выдана.",
         parse_mode="Markdown"
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "parent_child_plan")
+async def handle_parent_child_plan(callback: CallbackQuery) -> None:
+    today = date.today()
+    weekday = today.weekday()
+
+    async with get_session() as session:
+        result = await session.execute(
+            select(TaskCompletion)
+            .join(Task)
+            .where(
+                and_(
+                    TaskCompletion.date == today,
+                    Task.is_active == True,
+                )
+            )
+        )
+        completions = result.scalars().all()
+
+        task_ids = [c.task_id for c in completions]
+        if task_ids:
+            task_result = await session.execute(select(Task).where(Task.id.in_(task_ids)))
+            tasks_map = {t.id: t for t in task_result.scalars().all()}
+        else:
+            tasks_map = {}
+
+        from models import ScheduleBlock
+        schedule_result = await session.execute(
+            select(ScheduleBlock).where(
+                and_(ScheduleBlock.is_active == True, ScheduleBlock.day_of_week == weekday)
+            )
+        )
+        blocks = schedule_result.scalars().all()
+
+    done, pending, all_tasks = [], [], []
+    for comp in completions:
+        task = tasks_map.get(comp.task_id)
+        if not task:
+            continue
+        icon = "✅" if comp.status == CompletionStatus.done else "⬜"
+        line = f"{icon} {task.title} (+{task.points}⭐)"
+        all_tasks.append(line)
+        if comp.status == CompletionStatus.done:
+            done.append(task.title)
+
+    text = f"🗓 *План Соломии на {today.strftime('%d.%m.%Y')}*\n\n"
+    if all_tasks:
+        text += "\n".join(all_tasks)
+    else:
+        text += "(задач нет)"
+
+    if blocks:
+        text += "\n\n*Расписание:*\n"
+        text += "\n".join([f"📅 {b.event_name}: {b.blocked_from}–{b.blocked_to}" for b in blocks])
+
+    total = len(completions)
+    done_count = len(done)
+    if total:
+        text += f"\n\n📊 Выполнено: {done_count}/{total}"
+
+    await callback.message.edit_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
     await callback.answer()
 
 

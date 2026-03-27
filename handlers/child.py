@@ -691,6 +691,7 @@ class ChildAddTaskFSM(StatesGroup):
     title = State()
     category = State()
     deadline = State()
+    task_time = State()
 
 
 @router.callback_query(F.data == "child_add_task")
@@ -725,28 +726,34 @@ async def child_task_category(callback: CallbackQuery, state: FSMContext) -> Non
     }
     await state.update_data(task_category=cat_map.get(callback.data, "personal"))
     await state.set_state(ChildAddTaskFSM.deadline)
+    from keyboards import day_picker_keyboard
     await callback.message.edit_text(
-        "📅 *К какому числу?*\n\nВведи дату (ДД.ММ.ГГГГ) или напиши 'завтра' / 'сегодня':",
+        "📅 *Выбери день:*",
+        reply_markup=day_picker_keyboard(),
         parse_mode="Markdown"
     )
     await callback.answer()
 
 
-@router.message(ChildAddTaskFSM.deadline)
-async def child_task_deadline(message: Message, state: FSMContext) -> None:
-    text = message.text.strip().lower()
-    if text == "сегодня":
-        deadline_date = date.today()
-    elif text == "завтра":
-        deadline_date = date.today() + timedelta(days=1)
-    else:
-        try:
-            deadline_date = datetime.strptime(text, "%d.%m.%Y").date()
-        except ValueError:
-            await message.answer("❌ Неверный формат! Введи дату как ДД.ММ.ГГГГ, 'сегодня' или 'завтра':")
-            return
+@router.callback_query(ChildAddTaskFSM.deadline, F.data.startswith("day_"))
+async def child_task_deadline(callback: CallbackQuery, state: FSMContext) -> None:
+    day_str = callback.data.replace("day_", "")
+    await state.update_data(task_deadline=day_str)
+    await state.set_state(ChildAddTaskFSM.task_time)
+    from keyboards import time_picker_keyboard
+    await callback.message.edit_text(
+        "🕐 *Выбери время:*",
+        reply_markup=time_picker_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
+
+@router.callback_query(ChildAddTaskFSM.task_time, F.data.startswith("time_"))
+async def child_task_time(callback: CallbackQuery, state: FSMContext) -> None:
+    time_str = callback.data.replace("time_", "")
     data = await state.get_data()
+    deadline_date = date.fromisoformat(data["task_deadline"])
 
     async with get_session() as session:
         task = Task(
@@ -758,9 +765,10 @@ async def child_task_deadline(message: Message, state: FSMContext) -> None:
             recur_type="once",
             recur_time="evening",
             deadline=deadline_date,
+            specific_time=time_str,
             points=2,
             penalty_points=0,
-            created_by=message.from_user.id,
+            created_by=callback.from_user.id,
         )
         session.add(task)
         await session.flush()
@@ -773,14 +781,15 @@ async def child_task_deadline(message: Message, state: FSMContext) -> None:
         session.add(completion)
 
     await state.clear()
-    await message.answer(
+    await callback.message.edit_text(
         f"✅ *Задача добавлена!*\n\n"
         f"📌 {data['task_title']}\n"
-        f"📅 Срок: {deadline_date.strftime('%d.%m.%Y')}\n\n"
+        f"📅 {deadline_date.strftime('%d.%m.%Y')} в {time_str}\n\n"
         f"Удачи! 💪",
         reply_markup=back_keyboard(),
         parse_mode="Markdown"
     )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "child_my_reward")

@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from typing import Optional
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -29,6 +30,9 @@ def parent_main_menu() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="➕ Добавить задачу", callback_data="parent_add_task"),
         InlineKeyboardButton(text="📋 Задачи дочки", callback_data="parent_tasks"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🗓 План Соломии сегодня", callback_data="parent_child_plan"),
     )
     builder.row(
         InlineKeyboardButton(text="❌ Невыполненные", callback_data="parent_failed_tasks"),
@@ -198,6 +202,49 @@ def recur_time_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🌅 Утро", callback_data="rtime_morning"),
         InlineKeyboardButton(text="🌙 Вечер", callback_data="rtime_evening"),
     )
+    return builder.as_markup()
+
+
+def day_picker_keyboard() -> InlineKeyboardMarkup:
+    today = date.today()
+    days_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="📅 Сегодня", callback_data=f"day_{today.isoformat()}"),
+        InlineKeyboardButton(text="📅 Завтра", callback_data=f"day_{(today + timedelta(days=1)).isoformat()}"),
+    )
+    next_days = []
+    for i in range(2, 7):
+        d = today + timedelta(days=i)
+        next_days.append(InlineKeyboardButton(
+            text=f"{days_ru[d.weekday()]} {d.strftime('%d.%m')}",
+            callback_data=f"day_{d.isoformat()}"
+        ))
+    builder.row(*next_days[:3])
+    builder.row(*next_days[3:])
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu"))
+    return builder.as_markup()
+
+
+def time_picker_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🌅 07:30 Утро", callback_data="time_07:30"),
+        InlineKeyboardButton(text="☀️ 10:00", callback_data="time_10:00"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🕐 13:00 Обед", callback_data="time_13:00"),
+        InlineKeyboardButton(text="🕔 16:00", callback_data="time_16:00"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🏫 17:30 После школы", callback_data="time_17:30"),
+        InlineKeyboardButton(text="🌆 19:00 Вечер", callback_data="time_19:00"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🌙 21:00 Перед сном", callback_data="time_21:00"),
+        InlineKeyboardButton(text="🌙 22:00", callback_data="time_22:00"),
+    )
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu"))
     return builder.as_markup()
 
 

@@ -791,6 +791,85 @@ async def parent_weekly_report_job():
         logger.error(f"parent_weekly_report_job error: {e}")
 
 
+async def tomorrow_plan_job():
+    """Evening notification: tomorrow's plan for child and parents."""
+    logger.info("Running tomorrow_plan_job")
+    if not _bot:
+        return
+    try:
+        tomorrow = date.today() + timedelta(days=1)
+        weekday = tomorrow.weekday()
+        days_ru = ["понедельник", "вторник", "среду", "четверг", "пятницу", "субботу", "воскресенье"]
+
+        async with get_session() as session:
+            child_ids = await get_child_telegram_ids(session)
+            parent_ids = await get_parent_telegram_ids(session)
+
+            result = await session.execute(
+                select(TaskCompletion)
+                .join(Task)
+                .where(
+                    and_(
+                        TaskCompletion.date == tomorrow,
+                        Task.is_active == True,
+                    )
+                )
+            )
+            completions = result.scalars().all()
+            task_ids = [c.task_id for c in completions]
+
+            tasks_map = {}
+            if task_ids:
+                task_result = await session.execute(select(Task).where(Task.id.in_(task_ids)))
+                tasks_map = {t.id: t for t in task_result.scalars().all()}
+
+            schedule_result = await session.execute(
+                select(ScheduleBlock).where(
+                    and_(ScheduleBlock.is_active == True, ScheduleBlock.day_of_week == weekday)
+                )
+            )
+            blocks = schedule_result.scalars().all()
+
+        task_lines = []
+        for comp in completions:
+            task = tasks_map.get(comp.task_id)
+            if task:
+                time_str = f" в {task.specific_time}" if task.specific_time else ""
+                task_lines.append(f"• {task.title}{time_str} (+{task.points}⭐)")
+
+        child_text = (
+            f"🌙 *План на завтра — {days_ru[weekday]}:*\n\n"
+            + ("\n".join(task_lines) if task_lines else "(задач нет)")
+        )
+        if blocks:
+            child_text += "\n\n*Расписание:*\n"
+            child_text += "\n".join([f"📅 {b.event_name}: {b.blocked_from}–{b.blocked_to}" for b in blocks])
+        child_text += "\n\nГотовься заранее! 💪"
+
+        parent_text = (
+            f"📋 *План Соломии на завтра — {days_ru[weekday]}:*\n\n"
+            + ("\n".join(task_lines) if task_lines else "(задач нет)")
+        )
+        if blocks:
+            parent_text += "\n\n*Расписание:*\n"
+            parent_text += "\n".join([f"📅 {b.event_name}: {b.blocked_from}–{b.blocked_to}" for b in blocks])
+
+        for child_id in child_ids:
+            try:
+                await _bot.send_message(child_id, child_text, parse_mode="Markdown")
+            except Exception as e:
+                logger.error(f"Failed to send tomorrow plan to child {child_id}: {e}")
+
+        for parent_id in parent_ids:
+            try:
+                await _bot.send_message(parent_id, parent_text, parse_mode="Markdown")
+            except Exception as e:
+                logger.error(f"Failed to send tomorrow plan to parent {parent_id}: {e}")
+
+    except Exception as e:
+        logger.error(f"tomorrow_plan_job error: {e}")
+
+
 async def event_reminder_job():
     logger.info("Running event_reminder_job")
     if not _bot:
@@ -953,6 +1032,14 @@ def setup_scheduler(morning_hour: int = 7, morning_minute: int = 30):
         id="event_reminder_job",
         replace_existing=True,
         misfire_grace_time=60,
+    )
+
+    scheduler.add_job(
+        tomorrow_plan_job,
+        CronTrigger(hour=20, minute=0),
+        id="tomorrow_plan_job",
+        replace_existing=True,
+        misfire_grace_time=300,
     )
 
     scheduler.add_job(
