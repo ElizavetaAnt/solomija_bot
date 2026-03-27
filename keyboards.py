@@ -234,7 +234,6 @@ def time_picker_keyboard() -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="🕐 13:00 Обед", callback_data="time_13:00"),
-        InlineKeyboardButton(text="🕔 16:00", callback_data="time_16:00"),
     )
     builder.row(
         InlineKeyboardButton(text="🏫 17:30 После школы", callback_data="time_17:30"),
