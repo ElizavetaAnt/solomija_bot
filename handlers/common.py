@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
@@ -232,7 +232,7 @@ async def handle_back_to_menu(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.message()
+@router.message(StateFilter(None))
 async def handle_unknown(message: Message) -> None:
     async with get_session() as session:
         from sqlalchemy import select
