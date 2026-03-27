@@ -219,6 +219,10 @@ async def create_day_completions(session, target_date: date) -> int:
             # Grandma tasks are handled separately by plan_grandma_visits()
             if task.title in ("Навестить прабабушку", "Купить сладость для прабабушки"):
                 continue
+
+        # School prep tasks only Mon-Thu (no point preparing for weekend)
+        if task.title in ("Подготовить одежду на завтра", "Проверить ланч-бокс и посуду") and weekday >= 4:
+            continue
             # Other weekly tasks only on Fridays, once per week
             if weekday == 4:
                 week_start = target_date - timedelta(days=target_date.weekday())
