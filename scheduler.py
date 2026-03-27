@@ -686,7 +686,7 @@ async def event_reminder_job():
         return
     try:
         now = datetime.now(tz=scheduler.timezone)
-        in_15 = (now + timedelta(minutes=15)).strftime("%H:%M")
+        in_15 = (now + timedelta(minutes=30)).strftime("%H:%M")
         weekday = now.weekday()
 
         async with get_session() as session:
@@ -706,13 +706,13 @@ async def event_reminder_job():
 
         for block in upcoming:
             child_text = (
-                f"⏰ *Через 15 минут — {block.event_name}!*\n\n"
+                f"⏰ *Через 30 минут — {block.event_name}!*\n\n"
                 f"🕐 Начало в {block.blocked_from}\n\n"
                 f"Пора готовиться! 💪"
             )
             parent_text = (
                 f"📣 Соломия получила напоминание:\n\n"
-                f"*{block.event_name}* начинается в {block.blocked_from} (через 15 минут)"
+                f"*{block.event_name}* начинается в {block.blocked_from} (через 30 минут)"
             )
 
             for child_id in child_ids:
