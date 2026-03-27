@@ -96,7 +96,7 @@ async def populate_initial_data(session: AsyncSession) -> None:
             is_recurring=True,
             recur_type=RecurType.daily,
             recur_time=RecurTime.evening,
-            points=2,
+            points=5,
             penalty_points=0,
         ),
         Task(
@@ -131,7 +131,7 @@ async def populate_initial_data(session: AsyncSession) -> None:
             recur_type=RecurType.daily,
             recur_time=RecurTime.evening,
             specific_time="21:00",
-            points=2,
+            points=5,
             penalty_points=0,
         ),
     ]
@@ -145,7 +145,7 @@ async def populate_initial_data(session: AsyncSession) -> None:
             is_recurring=True,
             recur_type=RecurType.weekday,
             recur_time=RecurTime.evening,
-            points=2,
+            points=5,
             penalty_points=0,
         ),
     ]

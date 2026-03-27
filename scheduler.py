@@ -78,7 +78,8 @@ async def get_today_tasks(session, recur_type_filter: Optional[str] = None) -> l
             if weekday < 5:
                 today_tasks.append(task)
         elif recur == RecurType.weekly.value:
-            today_tasks.append(task)
+            if weekday == 4:  # Only Fridays
+                today_tasks.append(task)
         elif recur == RecurType.once.value:
             if task.deadline == today:
                 today_tasks.append(task)
@@ -214,7 +215,21 @@ async def create_day_completions(session, target_date: date) -> int:
         elif recur == RecurType.weekday.value:
             should_create = weekday < 5
         elif recur == RecurType.weekly.value:
-            should_create = True
+            # Only on Fridays (no events), and only once per week
+            if weekday == 4:
+                week_start = target_date - timedelta(days=target_date.weekday())
+                week_end = week_start + timedelta(days=6)
+                existing_week = await session.execute(
+                    select(TaskCompletion).where(
+                        and_(
+                            TaskCompletion.task_id == task.id,
+                            TaskCompletion.date >= week_start,
+                            TaskCompletion.date <= week_end,
+                        )
+                    )
+                )
+                if not existing_week.scalar_one_or_none():
+                    should_create = True
         elif recur == RecurType.once.value:
             should_create = task.deadline == target_date
 

@@ -34,6 +34,16 @@ async def on_startup(bot: Bot) -> None:
     async with get_session() as session:
         await populate_initial_data(session)
 
+    logger.info("Updating task points...")
+    from sqlalchemy import update
+    from models import Task
+    async with get_session() as session:
+        await session.execute(
+            update(Task).where(Task.title.in_([
+                "Чтение (30 мин)", "Чтение перед сном", "Проверить ланч-бокс и посуду"
+            ])).values(points=5)
+        )
+
     logger.info("Creating today's task completions...")
     from scheduler import create_day_completions
     async with get_session() as session:
