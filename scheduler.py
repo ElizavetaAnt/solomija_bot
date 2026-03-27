@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -215,7 +216,10 @@ async def create_day_completions(session, target_date: date) -> int:
         elif recur == RecurType.weekday.value:
             should_create = weekday < 5
         elif recur == RecurType.weekly.value:
-            # Only on Fridays (no events), and only once per week
+            # Grandma tasks are handled separately by plan_grandma_visits()
+            if task.title in ("Навестить прабабушку", "Купить сладость для прабабушки"):
+                continue
+            # Other weekly tasks only on Fridays, once per week
             if weekday == 4:
                 week_start = target_date - timedelta(days=target_date.weekday())
                 week_end = week_start + timedelta(days=6)
@@ -248,6 +252,93 @@ async def create_day_completions(session, target_date: date) -> int:
     return created
 
 
+GRANDMA_TASKS = ["Навестить прабабушку", "Купить сладость для прабабушки"]
+
+
+async def plan_grandma_visits(session, week_monday: date):
+    """Randomly picks Tuesday or Sunday for grandma visit this week."""
+    offset = random.choice([1, 6])  # 1=Tuesday, 6=Sunday
+    visit_date = week_monday + timedelta(days=offset)
+    week_end = week_monday + timedelta(days=6)
+
+    result = await session.execute(
+        select(Task).where(and_(Task.is_active == True, Task.title.in_(GRANDMA_TASKS)))
+    )
+    tasks = result.scalars().all()
+
+    for task in tasks:
+        existing = await session.execute(
+            select(TaskCompletion).where(
+                and_(
+                    TaskCompletion.task_id == task.id,
+                    TaskCompletion.date >= week_monday,
+                    TaskCompletion.date <= week_end,
+                )
+            )
+        )
+        if not existing.scalar_one_or_none():
+            session.add(TaskCompletion(
+                task_id=task.id,
+                date=visit_date,
+                status=CompletionStatus.pending,
+            ))
+
+    logger.info(f"Grandma visit planned for {visit_date} ({'Tuesday' if offset == 1 else 'Sunday'})")
+    return visit_date
+
+
+async def grandma_reminder_job():
+    """Sends morning reminder on grandma visit day."""
+    if not _bot:
+        return
+    try:
+        today = date.today()
+        async with get_session() as session:
+            child_ids = await get_child_telegram_ids(session)
+            parent_ids = await get_parent_telegram_ids(session)
+
+            result = await session.execute(
+                select(Task).where(and_(Task.is_active == True, Task.title.in_(GRANDMA_TASKS)))
+            )
+            tasks = result.scalars().all()
+
+            has_visit_today = False
+            for task in tasks:
+                comp = await session.execute(
+                    select(TaskCompletion).where(
+                        and_(TaskCompletion.task_id == task.id, TaskCompletion.date == today)
+                    )
+                )
+                if comp.scalar_one_or_none():
+                    has_visit_today = True
+                    break
+
+        if not has_visit_today:
+            return
+
+        child_text = (
+            "👵 *Сегодня день Вали!*\n\n"
+            "Не забудь навестить прабабушку и взять ей сладость! 🍬\n\n"
+            "Она всегда так рада тебя видеть! ❤️"
+        )
+        parent_text = "📣 Напоминание: сегодня Соломия должна навестить прабабушку Валю 👵"
+
+        for child_id in child_ids:
+            try:
+                await _bot.send_message(child_id, child_text, parse_mode="Markdown")
+            except Exception as e:
+                logger.error(f"Failed to send grandma reminder to child: {e}")
+
+        for parent_id in parent_ids:
+            try:
+                await _bot.send_message(parent_id, parent_text, parse_mode="Markdown")
+            except Exception as e:
+                logger.error(f"Failed to send grandma reminder to parent: {e}")
+
+    except Exception as e:
+        logger.error(f"grandma_reminder_job error: {e}")
+
+
 async def midnight_job():
     logger.info("Running midnight_job")
     try:
@@ -255,6 +346,11 @@ async def midnight_job():
         async with get_session() as session:
             count = await create_day_completions(session, tomorrow)
             logger.info(f"Created {count} completions for {tomorrow}")
+
+            # Every Monday — plan grandma visit for the week (Tue or Sun randomly)
+            if tomorrow.weekday() == 0:  # tomorrow is Monday
+                week_monday = tomorrow
+                await plan_grandma_visits(session, week_monday)
     except Exception as e:
         logger.error(f"midnight_job error: {e}")
 
@@ -857,6 +953,14 @@ def setup_scheduler(morning_hour: int = 7, morning_minute: int = 30):
         id="event_reminder_job",
         replace_existing=True,
         misfire_grace_time=60,
+    )
+
+    scheduler.add_job(
+        grandma_reminder_job,
+        CronTrigger(hour=10, minute=0, day_of_week="tue,sun"),
+        id="grandma_reminder_job",
+        replace_existing=True,
+        misfire_grace_time=300,
     )
 
     logger.info("Scheduler jobs configured.")
