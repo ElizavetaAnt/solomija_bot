@@ -680,6 +680,57 @@ async def parent_weekly_report_job():
         logger.error(f"parent_weekly_report_job error: {e}")
 
 
+async def event_reminder_job():
+    logger.info("Running event_reminder_job")
+    if not _bot:
+        return
+    try:
+        now = datetime.now(tz=scheduler.timezone)
+        in_15 = (now + timedelta(minutes=15)).strftime("%H:%M")
+        weekday = now.weekday()
+
+        async with get_session() as session:
+            child_ids = await get_child_telegram_ids(session)
+            parent_ids = await get_parent_telegram_ids(session)
+
+            result = await session.execute(
+                select(ScheduleBlock).where(
+                    and_(
+                        ScheduleBlock.is_active == True,
+                        ScheduleBlock.day_of_week == weekday,
+                        ScheduleBlock.blocked_from == in_15,
+                    )
+                )
+            )
+            upcoming = result.scalars().all()
+
+        for block in upcoming:
+            child_text = (
+                f"⏰ *Через 15 минут — {block.event_name}!*\n\n"
+                f"🕐 Начало в {block.blocked_from}\n\n"
+                f"Пора готовиться! 💪"
+            )
+            parent_text = (
+                f"📣 Соломия получила напоминание:\n\n"
+                f"*{block.event_name}* начинается в {block.blocked_from} (через 15 минут)"
+            )
+
+            for child_id in child_ids:
+                try:
+                    await _bot.send_message(child_id, child_text, parse_mode="Markdown")
+                except Exception as e:
+                    logger.error(f"Failed to send event reminder to child {child_id}: {e}")
+
+            for parent_id in parent_ids:
+                try:
+                    await _bot.send_message(parent_id, parent_text, parse_mode="Markdown")
+                except Exception as e:
+                    logger.error(f"Failed to send event notify to parent {parent_id}: {e}")
+
+    except Exception as e:
+        logger.error(f"event_reminder_job error: {e}")
+
+
 async def schedule_one_time_reminder(user_id: int, task_id: int, task_title: str, remind_at: datetime):
     if not _bot:
         return
@@ -783,6 +834,14 @@ def setup_scheduler(morning_hour: int = 7, morning_minute: int = 30):
         id="parent_weekly_report_job",
         replace_existing=True,
         misfire_grace_time=300,
+    )
+
+    scheduler.add_job(
+        event_reminder_job,
+        CronTrigger(minute="*/15"),
+        id="event_reminder_job",
+        replace_existing=True,
+        misfire_grace_time=60,
     )
 
     logger.info("Scheduler jobs configured.")
